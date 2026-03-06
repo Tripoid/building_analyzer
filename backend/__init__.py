@@ -1,0 +1,1 @@
+"""Building Analyzer backend package."""
