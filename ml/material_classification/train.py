@@ -144,7 +144,7 @@ class MaterialTrainer:
                 logger.info(
                     "Epoch %d  step %d  loss=%.4f  (%.1fs)",
                     epoch,
-                    self.cfg.num_epochs,
+                    step,
                     avg,
                     time.time() - t0,
                 )
