@@ -1,0 +1,31 @@
+# Backend dependencies for Facade Analyzer
+# Install with: pip install -r requirements.txt
+
+# Web framework
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+python-multipart==0.0.*
+
+# ML / Computer Vision
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.40.0
+accelerate>=0.30.0
+
+# Segmentation models
+ultralytics>=8.2.0
+rembg[cpu]>=2.0.50
+
+# SAM2 (install from git)
+# pip install git+https://github.com/facebookresearch/sam2.git
+
+# Image processing
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Tunnel for Colab
+pyngrok>=7.0.0
+
+# Utilities
+modelscope>=1.10.0
