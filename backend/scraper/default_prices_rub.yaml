@@ -1,0 +1,45 @@
+# Baseline RUB prices for AlegroCode calculator.
+# These values are used when the scraper has no fresh data (or has failed
+# consecutively). Numbers are conservative averages for RF, April 2026.
+#
+# To refresh manually: edit the values, commit. To refresh automatically:
+# run `python -m backend.scraper.worker run-once --source all`.
+
+materials:
+  facade_paint:           {price: 520,   unit: L}
+  facade_primer:          {price: 380,   unit: L}
+  facade_plaster:         {price: 48,    unit: kg}
+  facade_putty:           {price: 65,    unit: kg}
+  facade_brick:           {price: 38,    unit: piece}
+  cement_mix:             {price: 24,    unit: kg}
+  crack_sealant:          {price: 180,   unit: kg}
+  fiber_mesh:             {price: 95,    unit: m}
+  fiber_mesh_sq:          {price: 130,   unit: m2}
+  biocide:                {price: 480,   unit: L}
+  rust_converter_mat:     {price: 620,   unit: L}
+  anticorrosion_primer:   {price: 780,   unit: L}
+  metal_paint_mat:        {price: 890,   unit: L}
+  wood_antiseptic:        {price: 520,   unit: L}
+  wood_paint_mat:         {price: 940,   unit: L}
+  timber_board:           {price: 1400,  unit: m2}
+  antifungal_mat:         {price: 560,   unit: L}
+  window_glass:           {price: 3800,  unit: m2}
+  window_sealant:         {price: 420,   unit: L}
+
+labor:
+  painting:              {price: 380,   unit: m2}
+  plastering:            {price: 620,   unit: m2}
+  priming:               {price: 140,   unit: m2}
+  puttying:              {price: 280,   unit: m2}
+  masonry:               {price: 1100,  unit: m2}
+  crack_repair:          {price: 520,   unit: m}
+  biocide_treatment:     {price: 220,   unit: m2}
+  rust_treatment:        {price: 320,   unit: m2}
+  metal_painting:        {price: 440,   unit: m2}
+  antifungal_treatment:  {price: 260,   unit: m2}
+  wood_demolition:       {price: 340,   unit: m2}
+  wood_impregnation:     {price: 220,   unit: m2}
+  wood_installation:     {price: 780,   unit: m2}
+  wood_painting:         {price: 420,   unit: m2}
+  glazing:               {price: 1500,  unit: m2}
+  scaffolding_per_floor: {price: 18000, unit: floor}

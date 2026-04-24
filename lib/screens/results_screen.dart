@@ -1,40 +1,50 @@
-import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import '../models/analysis_result.dart';
-import '../widgets/stat_card.dart';
-import '../widgets/damage_chart.dart';
-import '../widgets/cost_breakdown_card.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
-class ResultsScreen extends StatefulWidget {
-  const ResultsScreen({super.key});
+import '../app/providers.dart';
+import '../domain/models/mask_layer.dart';
+import '../features/results/layer_panel.dart';
+import '../features/results/mask_layer_viewer.dart';
+import '../models/analysis_result.dart';
+import '../theme/app_theme.dart';
+import '../widgets/cost_breakdown_card.dart';
+import '../widgets/damage_chart.dart';
+import '../widgets/stat_card.dart';
+
+/// Responsive 5-tab results screen. Mobile: vertical stack. Tablet/landscape:
+/// mask viewer + layer panel side-by-side.
+class ResultsScreen extends ConsumerStatefulWidget {
+  const ResultsScreen({super.key, this.result});
+  final AnalysisResult? result;
 
   @override
-  State<ResultsScreen> createState() => _ResultsScreenState();
+  ConsumerState<ResultsScreen> createState() => _ResultsScreenState();
 }
 
-class _ResultsScreenState extends State<ResultsScreen>
+class _ResultsScreenState extends ConsumerState<ResultsScreen>
     with TickerProviderStateMixin {
-  late TabController _tabController;
-  late AnimationController _fadeController;
-  final AnalysisResult _result = AnalysisResult.mock();
-  int _currentImageIndex = 0;
+  late TabController _tabs;
+  late AnalysisResult _result;
+  late List<MaskLayer> _layers;
+  bool _restoring = false;
+
+  static final _rub =
+      NumberFormat.currency(locale: 'ru', symbol: '₽', decimalDigits: 0);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _fadeController.forward();
+    _tabs = TabController(length: 5, vsync: this);
+    _result = widget.result ?? AnalysisResult.mock();
+    _layers = _result.masks.toLayers();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
-    _fadeController.dispose();
+    _tabs.dispose();
     super.dispose();
   }
 
@@ -42,203 +52,48 @@ class _ResultsScreenState extends State<ResultsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.primaryDark,
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
+      body: SafeArea(
+        child: NestedScrollView(
+          headerSliverBuilder: (ctx, inner) => [
             SliverAppBar(
-              expandedHeight: 260,
               pinned: true,
-              backgroundColor: AppTheme.primaryMid,
+              expandedHeight: 220,
               leading: IconButton(
-                onPressed: () =>
-                    Navigator.popUntil(context, (route) => route.isFirst),
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceCard.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.arrow_back_rounded, size: 20),
-                ),
+                onPressed: () => context.go('/'),
+                icon: const Icon(Icons.arrow_back_rounded),
               ),
-              actions: [
-                IconButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Поделиться отчётом...')),
-                    );
-                  },
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceCard.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.share_rounded, size: 20),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Скачивание PDF отчёта...')),
-                    );
-                  },
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceCard.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.download_rounded, size: 20),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
               flexibleSpace: FlexibleSpaceBar(
-                background: _buildScoreHeader(),
+                collapseMode: CollapseMode.pin,
+                background: _Header(result: _result),
               ),
-              bottom: PreferredSize(
-                preferredSize: const Size.fromHeight(48),
-                child: Container(
-                  color: AppTheme.primaryMid,
-                  child: TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    indicatorSize: TabBarIndicatorSize.label,
-                    dividerColor: Colors.transparent,
-                    tabs: const [
-                      Tab(icon: Icon(Icons.image_rounded, size: 16), text: 'Снимки'),
-                      Tab(icon: Icon(Icons.bar_chart_rounded, size: 16), text: 'Дефекты'),
-                      Tab(icon: Icon(Icons.layers_rounded, size: 16), text: 'Материалы'),
-                      Tab(icon: Icon(Icons.payments_rounded, size: 16), text: 'Смета'),
-                      Tab(icon: Icon(Icons.build_rounded, size: 16), text: 'Ведомость'),
-                    ],
-                  ),
-                ),
+              bottom: TabBar(
+                controller: _tabs,
+                isScrollable: true,
+                tabs: const [
+                  Tab(text: 'Фото'),
+                  Tab(text: 'Дефекты'),
+                  Tab(text: 'Материалы'),
+                  Tab(text: 'Смета'),
+                  Tab(text: 'Ведомость'),
+                ],
               ),
             ),
-          ];
-        },
-        body: FadeTransition(
-          opacity: _fadeController,
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildImagesTab(),
-              _buildDamageTab(),
-              _buildMaterialsTab(),
-              _buildCostTab(),
-              _buildRepairMaterialsTab(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScoreHeader() {
-    Color scoreColor;
-    if (_result.overallScore >= 80) {
-      scoreColor = AppTheme.success;
-    } else if (_result.overallScore >= 60) {
-      scoreColor = AppTheme.warning;
-    } else {
-      scoreColor = AppTheme.danger;
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppTheme.primaryDark,
-            AppTheme.primaryMid,
           ],
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 48, 24, 56),
-          child: Row(
+          body: TabBarView(
+            controller: _tabs,
             children: [
-              SizedBox(
-                width: 100,
-                height: 100,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: CircularProgressIndicator(
-                        value: _result.overallScore / 100,
-                        strokeWidth: 8,
-                        backgroundColor: AppTheme.surfaceLight.withValues(alpha: 0.3),
-                        valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-                        strokeCap: StrokeCap.round,
-                      ),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _result.overallScore.toStringAsFixed(0),
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w800,
-                            color: scoreColor,
-                            height: 1,
-                          ),
-                        ),
-                        Text(
-                          'баллов',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: scoreColor.withValues(alpha: 0.7),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+              _PhotoTab(
+                result: _result,
+                layers: _layers,
+                onToggle: _toggleLayer,
+                onPreset: _applyPreset,
+                onRestore: _restoring ? null : _requestRestoration,
+                restoring: _restoring,
               ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: scoreColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        _result.overallCondition,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: scoreColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Площадь: ${_result.totalArea.toStringAsFixed(0)} м²',
-                      style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Повреждено: ${_result.damagedArea.toStringAsFixed(0)} м² (${(_result.damagedArea / _result.totalArea * 100).toStringAsFixed(0)}%)',
-                      style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
-                    ),
-                  ],
-                ),
-              ),
+              _DefectsTab(result: _result),
+              _MaterialsTab(result: _result),
+              _EstimateTab(result: _result, rub: _rub),
+              _BillTab(result: _result, rub: _rub),
             ],
           ),
         ),
@@ -246,641 +101,590 @@ class _ResultsScreenState extends State<ResultsScreen>
     );
   }
 
-  // ── Tab 1: Processed Images ──
+  void _toggleLayer(String id, bool visible) {
+    setState(() {
+      _layers = [
+        for (final l in _layers) l.id == id ? l.copyWith(visible: visible) : l,
+      ];
+    });
+  }
 
-  Widget _buildImagesTab() {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      physics: const BouncingScrollPhysics(),
-      children: [
-        SizedBox(
-          height: 280,
-          child: PageView.builder(
-            itemCount: _result.processedImages.length,
-            onPageChanged: (i) => setState(() => _currentImageIndex = i),
-            itemBuilder: (context, index) {
-              final img = _result.processedImages[index];
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.surfaceLight.withValues(alpha: 0.3)),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CustomPaint(painter: _ProcessedImagePainter(type: img.type)),
-                      Positioned(
-                        bottom: 0, left: 0, right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, AppTheme.primaryDark.withValues(alpha: 0.9)],
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(img.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-                              const SizedBox(height: 4),
-                              Text(img.description, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
+  void _applyPreset(LayerPreset preset) {
+    setState(() {
+      _layers = [
+        for (final l in _layers)
+          l.copyWith(
+            visible: switch (preset) {
+              LayerPreset.all => true,
+              LayerPreset.none => false,
+              LayerPreset.defectsOnly => l.group == MaskGroup.defects,
+              LayerPreset.materialsOnly => l.group == MaskGroup.materials,
             },
           ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(
-            _result.processedImages.length,
-            (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: i == _currentImageIndex ? 24 : 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: i == _currentImageIndex ? AppTheme.accent : AppTheme.surfaceLight,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        GridView.count(
-          crossAxisCount: 2,
-          childAspectRatio: 1.3,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            StatCard(icon: Icons.image_rounded, value: '${_result.processedImages.length}', label: 'Обработанных\nснимков', color: AppTheme.info),
-            StatCard(icon: Icons.bug_report_rounded, value: '${_result.damages.length}', label: 'Типов\nдефектов', color: AppTheme.danger),
-            StatCard(icon: Icons.square_foot_rounded, value: '${_result.totalArea.toStringAsFixed(0)} м²', label: 'Общая\nплощадь', color: AppTheme.success),
-            StatCard(icon: Icons.warning_rounded, value: '${(_result.damagedArea / _result.totalArea * 100).toStringAsFixed(0)}%', label: 'Площадь\nповреждений', color: AppTheme.warning),
-          ],
-        ),
-      ],
-    );
+      ];
+    });
   }
 
-  // ── Tab 2: Damage Statistics ──
-
-  Widget _buildDamageTab() {
-    final chartColors = [AppTheme.danger, AppTheme.warning, AppTheme.info, AppTheme.success, AppTheme.accentLight];
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      physics: const BouncingScrollPhysics(),
-      children: [
-        Center(
-          child: DamageChart(
-            size: 200,
-            data: _result.damages.asMap().entries.map((e) {
-              return DamageChartData(label: e.value.type, value: e.value.percentage, color: chartColors[e.key % chartColors.length]);
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 24),
-        ...List.generate(_result.damages.length, (i) {
-          final d = _result.damages[i];
-          return _buildDamageItem(d, chartColors[i % chartColors.length]);
-        }),
-      ],
-    );
-  }
-
-  Widget _buildDamageItem(DamageInfo damage, Color color) {
-    Color severityColor;
-    switch (damage.severity) {
-      case 'Высокая':
-        severityColor = AppTheme.danger;
-        break;
-      case 'Средняя':
-        severityColor = AppTheme.warning;
-        break;
-      default:
-        severityColor = AppTheme.success;
+  Future<void> _requestRestoration() async {
+    final id = _result.id;
+    if (id == null) return;
+    setState(() => _restoring = true);
+    final repo = ref.read(analysisRepositoryProvider);
+    try {
+      final updated = await repo.requestRestoration(analysisId: id);
+      if (!mounted) return;
+      setState(() {
+        _result = updated;
+        _layers = updated.masks.toLayers();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось восстановить: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _restoring = false);
     }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
-              const SizedBox(width: 10),
-              Expanded(child: Text(damage.type, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary))),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: severityColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                child: Text(damage.severity, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: severityColor)),
-              ),
-              const SizedBox(width: 8),
-              Text('${damage.percentage.toStringAsFixed(0)}%', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(value: damage.percentage / 100, backgroundColor: AppTheme.primaryLight, valueColor: AlwaysStoppedAnimation<Color>(color), minHeight: 4),
-          ),
-          const SizedBox(height: 8),
-          Text(damage.description, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4)),
-          if (damage.affectedLayers.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              children: damage.affectedLayers.map((layer) {
-                return Chip(
-                  label: Text(_layerName(layer), style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-                  backgroundColor: AppTheme.primaryLight,
-                  padding: EdgeInsets.zero,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
-                );
-              }).toList(),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  String _layerName(String key) {
-    switch (key) {
-      case 'finish': return 'Финиш';
-      case 'base_plaster': return 'Штукатурка';
-      case 'insulation': return 'Утеплитель';
-      case 'structural': return 'Несущий';
-      default: return key;
-    }
-  }
-
-  // ── Tab 3: Materials ──
-
-  Widget _buildMaterialsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      physics: const BouncingScrollPhysics(),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppTheme.surfaceCard, AppTheme.surfaceLight.withValues(alpha: 0.5)],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.surfaceLight.withValues(alpha: 0.3)),
-          ),
-          child: Column(
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.layers_rounded, color: AppTheme.accent, size: 22),
-                  SizedBox(width: 10),
-                  Text('Состав фасада', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ..._result.materials.map((m) => _buildMaterialBar(m)),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        ..._result.materials.map((m) => _buildMaterialDetailCard(m)),
-      ],
-    );
-  }
-
-  Widget _buildMaterialBar(MaterialInfo material) {
-    Color barColor;
-    switch (material.condition) {
-      case 'Хорошее':
-        barColor = AppTheme.success;
-        break;
-      case 'Удовлетворительное':
-        barColor = AppTheme.warning;
-        break;
-      default:
-        barColor = AppTheme.danger;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(material.iconData, size: 16, color: AppTheme.textSecondary),
-                  const SizedBox(width: 6),
-                  Text(material.name, style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
-                ],
-              ),
-              Text('${material.percentage.toStringAsFixed(0)}%', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: barColor)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(value: material.percentage / 100, backgroundColor: AppTheme.primaryLight, valueColor: AlwaysStoppedAnimation<Color>(barColor), minHeight: 6),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMaterialDetailCard(MaterialInfo material) {
-    Color conditionColor;
-    IconData conditionIcon;
-    switch (material.condition) {
-      case 'Хорошее':
-        conditionColor = AppTheme.success;
-        conditionIcon = Icons.check_circle_rounded;
-        break;
-      case 'Удовлетворительное':
-        conditionColor = AppTheme.warning;
-        conditionIcon = Icons.info_rounded;
-        break;
-      default:
-        conditionColor = AppTheme.danger;
-        conditionIcon = Icons.warning_rounded;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: conditionColor.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        children: [
-          Icon(material.iconData, size: 28, color: conditionColor),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(material.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(conditionIcon, color: conditionColor, size: 14),
-                    const SizedBox(width: 4),
-                    Text(material.condition, style: TextStyle(fontSize: 12, color: conditionColor, fontWeight: FontWeight.w500)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(8)),
-            child: Text('${material.percentage.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Tab 4: Cost Estimation ──
-
-  Widget _buildCostTab() {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      physics: const BouncingScrollPhysics(),
-      children: [
-        // Summary cards
-        Row(
-          children: [
-            Expanded(
-              child: StatCard(
-                icon: Icons.access_time_rounded,
-                value: '${_result.repairEstimate.estimatedDays}',
-                label: 'Дней\nработы',
-                color: AppTheme.info,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: StatCard(
-                icon: Icons.engineering_rounded,
-                value: '${_result.repairEstimate.totalWorkHours.toStringAsFixed(0)}',
-                label: 'Нормо-\nчасов',
-                color: AppTheme.warning,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        // Disclaimer
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppTheme.warning.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.warning.withValues(alpha: 0.2)),
-          ),
-          child: const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.info_outline_rounded, color: AppTheme.warning, size: 18),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Расчёт является предварительным и основан на средних рыночных ценах в регионе',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, height: 1.4),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        CostBreakdownCard(items: _result.costs),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Генерация PDF отчёта...')),
-                  );
-                },
-                icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
-                label: const Text('PDF отчёт'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Отправка отчёта...')),
-                  );
-                },
-                icon: const Icon(Icons.send_rounded, size: 18),
-                label: const Text('Отправить'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-      ],
-    );
-  }
-
-  // ── Tab 5: Repair Materials (Ведомость) ──
-
-  Widget _buildRepairMaterialsTab() {
-    final estimate = _result.repairEstimate;
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      physics: const BouncingScrollPhysics(),
-      children: [
-        // Materials section
-        const Row(
-          children: [
-            Icon(Icons.inventory_2_rounded, color: AppTheme.accent, size: 22),
-            SizedBox(width: 10),
-            Text('Необходимые материалы', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text('${estimate.materials.length} наименований • запас 10%', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-        const SizedBox(height: 12),
-        ...estimate.materials.map((m) => _buildRepairMaterialCard(m)),
-
-        const SizedBox(height: 24),
-        // Labor section
-        const Row(
-          children: [
-            Icon(Icons.engineering_rounded, color: AppTheme.info, size: 22),
-            SizedBox(width: 10),
-            Text('Работы', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ...estimate.labor.map((l) => _buildLaborCard(l)),
-
-        const SizedBox(height: 24),
-        // Grand total
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [AppTheme.accent, Color(0xFFFF8F00)]),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [BoxShadow(color: AppTheme.accent.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
-          ),
-          child: Column(
-            children: [
-              _summaryRow('Материалы', estimate.materialsTotal),
-              _summaryRow('Работы', estimate.laborTotal),
-              _summaryRow('Леса', estimate.scaffoldingTotal),
-              _summaryRow('НДС 12%', estimate.vatAmount),
-              const Divider(color: Colors.white24, height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Итого', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
-                  Text(_formatCurrency(estimate.grandTotal), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-      ],
-    );
-  }
-
-  Widget _summaryRow(String label, double amount) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.8))),
-          Text(_formatCurrency(amount), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.9))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRepairMaterialCard(RepairMaterialItem item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.surfaceLight.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-                const SizedBox(height: 4),
-                Text(
-                  '${item.quantity.toStringAsFixed(1)} ${item.unit} × ${_formatCurrency(item.pricePerUnit)}',
-                  style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            _formatCurrency(item.totalCost),
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.accent),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLaborCard(LaborItem item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.info.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-                const SizedBox(height: 4),
-                Text(
-                  '${item.quantity} ${item.unit} • ${item.normHours.toStringAsFixed(0)} ч',
-                  style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            _formatCurrency(item.totalCost),
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.info),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatCurrency(double amount) {
-    final formatted = amount.toStringAsFixed(0);
-    final buffer = StringBuffer();
-    int count = 0;
-    for (int i = formatted.length - 1; i >= 0; i--) {
-      buffer.write(formatted[i]);
-      count++;
-      if (count % 3 == 0 && i > 0) buffer.write(' ');
-    }
-    return '${buffer.toString().split('').reversed.join()} Р';
   }
 }
 
-// Custom painter for processed image previews
-class _ProcessedImagePainter extends CustomPainter {
-  final String type;
-  _ProcessedImagePainter({required this.type});
+// ──────────────────────── Header ────────────────────────
+
+class _Header extends StatelessWidget {
+  const _Header({required this.result});
+  final AnalysisResult result;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final rng = math.Random(type.hashCode);
-    final bgPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft, end: Alignment.bottomRight,
-        colors: [const Color(0xFF1A237E), const Color(0xFF283593)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
-
-    final buildingPaint = Paint()..color = const Color(0xFF78909C);
-    canvas.drawRect(Rect.fromLTWH(size.width * 0.1, size.height * 0.15, size.width * 0.8, size.height * 0.85), buildingPaint);
-
-    switch (type) {
-      case 'heatmap': _paintHeatmap(canvas, size, rng); break;
-      case 'defects': _paintDefects(canvas, size, rng); break;
-      case 'segments': _paintSegments(canvas, size, rng); break;
-      case 'overlay': _paintOverlay(canvas, size, rng); break;
-    }
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppTheme.primaryDark, AppTheme.primaryMid],
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 48, 16, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 96,
+            height: 96,
+            child: CircularProgressIndicator(
+              value: (result.overallScore / 100).clamp(0.0, 1.0),
+              strokeWidth: 8,
+              valueColor:
+                  AlwaysStoppedAnimation(_scoreColor(result.overallScore)),
+              backgroundColor: AppTheme.surfaceLight,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${result.overallScore.toStringAsFixed(1)} / 100',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  result.overallCondition,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppTheme.textSecondary,
+                      ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (result.priceSnapshotDate != null || result.pricesAreStale)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: _PriceBanner(result: result),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _paintHeatmap(Canvas canvas, Size size, math.Random rng) {
-    for (int i = 0; i < 30; i++) {
-      final x = size.width * 0.1 + rng.nextDouble() * size.width * 0.8;
-      final y = size.height * 0.15 + rng.nextDouble() * size.height * 0.75;
-      final r = 15 + rng.nextDouble() * 40;
-      final severity = rng.nextDouble();
-      final color = Color.lerp(Colors.green.withValues(alpha: 0.3), Colors.red.withValues(alpha: 0.5), severity)!;
-      canvas.drawCircle(Offset(x, y), r, Paint()..color = color);
-    }
+  static Color _scoreColor(double s) {
+    if (s >= 80) return AppTheme.success;
+    if (s >= 60) return AppTheme.warning;
+    if (s >= 30) return AppTheme.accent;
+    return AppTheme.danger;
   }
+}
 
-  void _paintDefects(Canvas canvas, Size size, math.Random rng) {
-    final defectPaint = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 2;
-    for (int i = 0; i < 8; i++) {
-      final x = size.width * 0.15 + rng.nextDouble() * size.width * 0.65;
-      final y = size.height * 0.2 + rng.nextDouble() * size.height * 0.6;
-      final w = 20 + rng.nextDouble() * 50;
-      final h = 15 + rng.nextDouble() * 40;
-      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), const Radius.circular(4)), defectPaint);
-      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), const Radius.circular(4)), Paint()..color = Colors.red.withValues(alpha: 0.15));
-    }
-  }
-
-  void _paintSegments(Canvas canvas, Size size, math.Random rng) {
-    final colors = [Colors.blue.withValues(alpha: 0.3), Colors.green.withValues(alpha: 0.3), Colors.orange.withValues(alpha: 0.3), Colors.purple.withValues(alpha: 0.3)];
-    final segH = size.height * 0.85 / colors.length;
-    for (int i = 0; i < colors.length; i++) {
-      canvas.drawRect(Rect.fromLTWH(size.width * 0.1, size.height * 0.15 + i * segH, size.width * 0.8, segH), Paint()..color = colors[i]);
-    }
-  }
-
-  void _paintOverlay(Canvas canvas, Size size, math.Random rng) {
-    final zones = [
-      Rect.fromLTWH(size.width * 0.15, size.height * 0.2, size.width * 0.3, size.height * 0.25),
-      Rect.fromLTWH(size.width * 0.5, size.height * 0.5, size.width * 0.35, size.height * 0.2),
-    ];
-    for (final z in zones) {
-      canvas.drawRRect(RRect.fromRectAndRadius(z, const Radius.circular(8)), Paint()..color = Colors.amber.withValues(alpha: 0.3));
-      canvas.drawRRect(RRect.fromRectAndRadius(z, const Radius.circular(8)), Paint()..color = Colors.amber..style = PaintingStyle.stroke..strokeWidth = 2);
-    }
-  }
+class _PriceBanner extends StatelessWidget {
+  const _PriceBanner({required this.result});
+  final AnalysisResult result;
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    final stale = result.pricesAreStale;
+    final label = result.priceSnapshotDate != null
+        ? 'Цены от ${_shortDate(result.priceSnapshotDate!)}'
+        : 'Цены: базовый прайс';
+    return Text(
+      stale ? '$label · обновление прайса не удалось' : label,
+      style: TextStyle(
+        fontSize: 11,
+        color: stale ? AppTheme.warning : AppTheme.textSecondary,
+      ),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  String _shortDate(String iso) {
+    final parsed = DateTime.tryParse(iso);
+    if (parsed == null) return iso;
+    return DateFormat('d MMM y', 'ru').format(parsed);
+  }
+}
+
+// ──────────────────────── Photo tab ────────────────────────
+
+class _PhotoTab extends StatelessWidget {
+  const _PhotoTab({
+    required this.result,
+    required this.layers,
+    required this.onToggle,
+    required this.onPreset,
+    required this.onRestore,
+    required this.restoring,
+  });
+  final AnalysisResult result;
+  final List<MaskLayer> layers;
+  final void Function(String, bool) onToggle;
+  final void Function(LayerPreset) onPreset;
+  final VoidCallback? onRestore;
+  final bool restoring;
+
+  static const _headers = {'ngrok-skip-browser-warning': 'true'};
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, cons) {
+        final wide = cons.maxWidth >= 720;
+        final viewer = MaskLayerViewer(
+          baseImageUrl: result.masks.baseImageUrl,
+          layers: layers,
+        );
+        final panel = LayerPanel(
+          layers: layers,
+          onToggle: onToggle,
+          onPreset: onPreset,
+        );
+        final restoredPreview = result.restoredUrl != null
+            ? Card(
+                margin: const EdgeInsets.only(top: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('ИИ-реставрация',
+                          style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 8),
+                      AspectRatio(
+                        aspectRatio: 4 / 3,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: CachedNetworkImage(
+                            imageUrl: _absoluteUrl(result.restoredUrl!),
+                            httpHeaders: _headers,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : const SizedBox.shrink();
+        final restoreBtn = Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: ElevatedButton.icon(
+            onPressed: onRestore,
+            icon: restoring
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_fix_high_rounded),
+            label: Text(result.restoredUrl == null
+                ? 'ИИ-реставрация фасада'
+                : 'Перезапустить реставрацию'),
+          ),
+        );
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          physics: const BouncingScrollPhysics(),
+          child: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        children: [viewer, restoreBtn, restoredPreview],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(child: panel),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    viewer,
+                    const SizedBox(height: 12),
+                    panel,
+                    restoreBtn,
+                    restoredPreview,
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  String _absoluteUrl(String url) {
+    if (url.startsWith('http')) return url;
+    final base = result.masks.baseImageUrl;
+    final idx = base.indexOf('/api/');
+    if (idx < 0) return url;
+    return '${base.substring(0, idx)}$url';
+  }
+}
+
+// ──────────────────────── Defects tab ────────────────────────
+
+class _DefectsTab extends StatelessWidget {
+  const _DefectsTab({required this.result});
+  final AnalysisResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (ctx, cons) => Center(
+              child: DamageChart(
+                data: [
+                  for (final d in result.damages)
+                    DamageChartData(
+                      label: d.type,
+                      value: d.percentage,
+                      color: _damageColor(d.severity),
+                    ),
+                ],
+                size: cons.maxWidth.clamp(180.0, 260.0),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (final d in result.damages)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            d.type,
+                            style: Theme.of(context).textTheme.titleSmall,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        _Severity(severity: d.severity),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    LinearProgressIndicator(
+                      value: (d.percentage / 100).clamp(0.0, 1.0),
+                      minHeight: 6,
+                      color: _damageColor(d.severity),
+                      backgroundColor: AppTheme.surfaceLight,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${d.percentage.toStringAsFixed(1)}% · ${d.areaM2.toStringAsFixed(1)} м²',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (d.affectedLayers.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            for (final l in d.affectedLayers)
+                              Chip(
+                                label: Text(_layerName(l)),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static Color _damageColor(String severity) {
+    final s = severity.toLowerCase();
+    if (s.contains('выс')) return AppTheme.danger;
+    if (s.contains('сред')) return AppTheme.warning;
+    return AppTheme.info;
+  }
+
+  static String _layerName(String k) => switch (k) {
+        'finish' => 'финиш',
+        'base_plaster' => 'штукатурка',
+        'insulation' => 'утеплитель',
+        'structural' => 'несущий',
+        _ => k,
+      };
+}
+
+class _Severity extends StatelessWidget {
+  const _Severity({required this.severity});
+  final String severity;
+  @override
+  Widget build(BuildContext context) {
+    final s = severity.toLowerCase();
+    final color = s.contains('выс')
+        ? AppTheme.danger
+        : s.contains('сред')
+            ? AppTheme.warning
+            : AppTheme.info;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(severity, style: TextStyle(color: color, fontSize: 11)),
+    );
+  }
+}
+
+// ──────────────────────── Materials tab ────────────────────────
+
+class _MaterialsTab extends StatelessWidget {
+  const _MaterialsTab({required this.result});
+  final AnalysisResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.2,
+      ),
+      itemCount: result.materials.length,
+      itemBuilder: (ctx, i) {
+        final m = result.materials[i];
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(m.iconData, color: AppTheme.accent),
+                const SizedBox(height: 8),
+                Text(
+                  m.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const Spacer(),
+                Text(
+                  '${m.percentage.toStringAsFixed(1)}%',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                Text(
+                  '${m.areaM2.toStringAsFixed(1)} м²',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ──────────────────────── Estimate tab ────────────────────────
+
+class _EstimateTab extends StatelessWidget {
+  const _EstimateTab({required this.result, required this.rub});
+  final AnalysisResult result;
+  final NumberFormat rub;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = result.repairEstimate;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (ctx, cons) => Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: cons.maxWidth >= 480
+                      ? (cons.maxWidth - 12) / 2
+                      : cons.maxWidth,
+                  child: StatCard(
+                    icon: Icons.account_balance_wallet_rounded,
+                    label: 'Итого к оплате',
+                    value: rub.format(e.grandTotal),
+                    color: AppTheme.accent,
+                  ),
+                ),
+                SizedBox(
+                  width: cons.maxWidth >= 480
+                      ? (cons.maxWidth - 12) / 2
+                      : cons.maxWidth,
+                  child: StatCard(
+                    icon: Icons.schedule_rounded,
+                    label: 'Срок работ',
+                    value: '${e.estimatedDays} дн.',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          CostBreakdownCard(items: result.costs),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────── Bill tab ────────────────────────
+
+class _BillTab extends StatelessWidget {
+  const _BillTab({required this.result, required this.rub});
+  final AnalysisResult result;
+  final NumberFormat rub;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = result.repairEstimate;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
+      children: [
+        Text('Материалы', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        for (final m in e.materials)
+          ListTile(
+            dense: true,
+            title: Text(m.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              '${m.quantity.toStringAsFixed(2)} ${m.unit} × ${rub.format(m.pricePerUnit)}',
+            ),
+            trailing: Text(
+              rub.format(m.totalCost),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        const Divider(),
+        Text('Работы', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        for (final l in e.labor)
+          ListTile(
+            dense: true,
+            title: Text(l.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              '${l.quantity.toStringAsFixed(2)} ${l.unit} · ${l.normHours.toStringAsFixed(1)} ч',
+            ),
+            trailing: Text(
+              rub.format(l.totalCost),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        const Divider(),
+        ListTile(
+          title: const Text('Леса'),
+          trailing: Text(
+            rub.format(e.scaffoldingTotal),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        ListTile(
+          title: Text('НДС (${(e.vatRate * 100).toStringAsFixed(0)}%)'),
+          trailing: Text(rub.format(e.vatAmount)),
+        ),
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [AppTheme.accent, AppTheme.accentLight],
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.payments_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Итого',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                rub.format(e.grandTotal),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

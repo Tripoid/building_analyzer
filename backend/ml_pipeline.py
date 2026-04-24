@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 GEOMETRY_PROMPT = (
     "window pane. entrance door. building facade wall. "
     "balcony terrace. roof rooftop. cornice molding decoration. "
-    "drainpipe pipe. air conditioner unit."
+    "drainpipe pipe gutter downspout. air conditioner unit. "
+    "foundation plinth basement wall. chimney stack. "
+    "fence railing barrier."
 )
 
 CLASS_MAP_GEOMETRY = {
@@ -38,8 +40,11 @@ CLASS_MAP_GEOMETRY = {
     "building": ["building", "facade", "wall"],
     "roof": ["roof", "rooftop"],
     "molding": ["cornice", "molding", "decoration"],
-    "pipe": ["drainpipe", "pipe"],
+    "pipe": ["drainpipe", "pipe", "gutter", "downspout"],
     "ac_unit": ["air conditioner", "unit"],
+    "foundation": ["foundation", "plinth", "basement"],
+    "chimney": ["chimney", "stack"],
+    "fence": ["fence", "railing barrier"],
 }
 
 WALL_DEFECT_PROMPTS = [
@@ -51,6 +56,15 @@ WALL_DEFECT_PROMPTS = [
     "green moss biological growth on wall surface",
     "white salt efflorescence deposit on wall",
     "spalling crumbling concrete surface damage",
+    # Prompt ensemble — 3 paraphrases per class for rare defects
+    "rusty iron oxide staining orange brown runoff",
+    "rust stain on facade iron oxide discoloration",
+    "rotten timber wood decay fungal damage",
+    "rotting wooden panel soft decayed timber",
+    "wood rot decomposition of wooden element",
+    "mold mildew patches black spots on wall",
+    "mildew biological growth water leakage stain",
+    "wet spot on facade damp moldy area",
 ]
 
 CLASS_MAP_WALL_DEFECTS = {
@@ -62,6 +76,9 @@ CLASS_MAP_WALL_DEFECTS = {
     "moss": ["moss", "biological growth"],
     "efflorescence": ["salt efflorescence", "deposit"],
     "spalling": ["spalling", "crumbling concrete"],
+    "rust_stain": ["iron oxide", "rust stain on facade", "orange brown runoff"],
+    "wood_rot": ["rotten timber", "wood decay", "rotting wooden", "wood rot"],
+    "mold": ["mold", "mildew", "wet spot", "damp moldy"],
 }
 
 ELEMENT_DEFECT_PROMPTS = [
@@ -69,6 +86,10 @@ ELEMENT_DEFECT_PROMPTS = [
     "damaged rotten wooden door frame surface",
     "rusty corroded metal element railing",
     "damaged cracked balcony railing surface",
+    # Glass crack ensemble
+    "cracked window glass shattered glazing",
+    "broken glass pane fractured window",
+    "glass curtain wall with cracks",
 ]
 
 CLASS_MAP_ELEMENT_DEFECTS = {
@@ -76,6 +97,7 @@ CLASS_MAP_ELEMENT_DEFECTS = {
     "damaged_wood": ["damaged", "rotten wooden"],
     "rusty_metal": ["rusty", "corroded metal"],
     "damaged_railing": ["damaged", "cracked balcony"],
+    "glass_crack": ["cracked window glass", "shattered glazing", "broken glass pane", "glass curtain wall"],
 }
 
 MATERIAL_PROMPTS = [
@@ -86,6 +108,9 @@ MATERIAL_PROMPTS = [
     "architectural molding cornice decoration ornament",
     "ceramic tile cladding facade surface",
     "painted surface facade wall finish coating",
+    "wooden siding timber panel wall cladding",
+    "metal cladding steel panel aluminum facade surface",
+    "window glazing glass curtain wall pane",
 ]
 
 CLASS_MAP_MATERIALS = {
@@ -96,6 +121,9 @@ CLASS_MAP_MATERIALS = {
     "molding": ["molding", "cornice", "decoration"],
     "ceramic_tile": ["ceramic tile"],
     "painted_surface": ["painted surface"],
+    "wood": ["wooden siding", "timber panel", "wood cladding"],
+    "metal": ["metal cladding", "steel panel", "aluminum facade"],
+    "glass": ["window glazing", "glass curtain wall", "glass pane"],
 }
 
 COLORS_GEOMETRY = {
@@ -107,6 +135,9 @@ COLORS_GEOMETRY = {
     "molding": [200, 200, 200],
     "pipe": [128, 0, 128],
     "ac_unit": [0, 128, 128],
+    "foundation": [101, 67, 33],
+    "chimney": [160, 82, 45],
+    "fence": [128, 128, 128],
     "unknown": [255, 255, 0],
 }
 
@@ -119,6 +150,9 @@ COLORS_WALL_DEFECTS = {
     "moss": [39, 174, 96],
     "efflorescence": [236, 240, 241],
     "spalling": [149, 165, 166],
+    "rust_stain": [183, 65, 14],
+    "wood_rot": [92, 51, 23],
+    "mold": [75, 0, 130],
 }
 
 COLORS_ELEMENT_DEFECTS = {
@@ -126,6 +160,7 @@ COLORS_ELEMENT_DEFECTS = {
     "damaged_wood": [255, 20, 147],
     "rusty_metal": [205, 92, 0],
     "damaged_railing": [148, 103, 189],
+    "glass_crack": [100, 200, 255],
 }
 
 COLORS_MATERIALS = {
@@ -136,6 +171,9 @@ COLORS_MATERIALS = {
     "molding": [236, 240, 241],
     "ceramic_tile": [46, 134, 193],
     "painted_surface": [175, 215, 160],
+    "wood": [139, 90, 43],
+    "metal": [169, 169, 190],
+    "glass": [135, 206, 250],
 }
 
 # Wall layer definitions for multi-layer analysis
@@ -156,6 +194,14 @@ DEFECT_LAYER_IMPACT = {
     "moss": ["finish"],
     "efflorescence": ["finish"],
     "spalling": ["finish", "base_plaster", "structural"],
+    "rust_stain": ["finish"],
+    "wood_rot": ["finish", "base_plaster", "structural"],
+    "mold": ["finish", "base_plaster"],
+    "glass_crack": ["finish"],
+    "broken_glass": ["finish"],
+    "damaged_wood": ["finish", "base_plaster"],
+    "rusty_metal": ["finish"],
+    "damaged_railing": ["finish"],
 }
 
 SEVERITY_LABELS = {
@@ -373,7 +419,10 @@ class FacadeAnalyzer:
 
         # 2. Compute bare wall mask
         elements = np.zeros(original_size, dtype=bool)
-        for key in ["window", "door", "balcony", "roof", "molding", "pipe", "ac_unit"]:
+        for key in [
+            "window", "door", "balcony", "roof", "molding", "pipe",
+            "ac_unit", "foundation", "chimney", "fence",
+        ]:
             if key in geom_masks:
                 elements |= geom_masks[key]
         bare_wall = silhouette & ~elements
@@ -396,15 +445,37 @@ class FacadeAnalyzer:
         mask_windows = geom_masks.get("window", np.zeros(original_size, dtype=bool))
         mask_doors = geom_masks.get("door", np.zeros(original_size, dtype=bool))
         mask_balconies = geom_masks.get("balcony", np.zeros(original_size, dtype=bool))
+        mask_pipes = geom_masks.get("pipe", np.zeros(original_size, dtype=bool))
+        mask_fence = geom_masks.get("fence", np.zeros(original_size, dtype=bool))
+        mask_foundation = geom_masks.get("foundation", np.zeros(original_size, dtype=bool))
 
         if "broken_glass" in element_defect_masks:
             element_defect_masks["broken_glass"] &= mask_windows
+        if "glass_crack" in element_defect_masks:
+            element_defect_masks["glass_crack"] &= mask_windows
         if "damaged_wood" in element_defect_masks:
             element_defect_masks["damaged_wood"] &= mask_doors
         if "rusty_metal" in element_defect_masks:
-            element_defect_masks["rusty_metal"] &= (mask_balconies | mask_windows)
+            element_defect_masks["rusty_metal"] &= (mask_balconies | mask_windows | mask_pipes | mask_fence)
         if "damaged_railing" in element_defect_masks:
-            element_defect_masks["damaged_railing"] &= mask_balconies
+            element_defect_masks["damaged_railing"] &= (mask_balconies | mask_fence)
+
+        # Wall-defect routing: elements that belong next to pipes / foundation
+        if "rust_stain" in wall_defect_masks:
+            # Rust stains usually streak down from pipes or onto the wall;
+            # keep the bare-wall result but also allow pipe-adjacent stains.
+            pipe_adj = cv2.dilate(
+                mask_pipes.astype(np.uint8), np.ones((15, 15), np.uint8), iterations=1
+            ).astype(bool)
+            wall_defect_masks["rust_stain"] = wall_defect_masks["rust_stain"] | (
+                wall_defect_masks["rust_stain"] & pipe_adj
+            )
+        if "efflorescence" in wall_defect_masks:
+            # Efflorescence is most common on plinths / foundations — keep wall
+            # result but do NOT erase it if the only location is foundation.
+            wall_defect_masks["efflorescence"] |= (
+                wall_defect_masks["efflorescence"] & mask_foundation
+            )
 
         torch.cuda.empty_cache()
         gc.collect()
@@ -427,7 +498,10 @@ class FacadeAnalyzer:
         rgba = remove(img_rgb)
         silhouette = rgba[:, :, 3] > 128
         elements = np.zeros(original_size, dtype=bool)
-        for key in ["window", "door", "balcony", "roof", "molding", "pipe", "ac_unit"]:
+        for key in [
+            "window", "door", "balcony", "roof", "molding", "pipe",
+            "ac_unit", "foundation", "chimney", "fence",
+        ]:
             if key in geom_masks:
                 elements |= geom_masks[key]
         bare_wall = silhouette & ~elements
@@ -475,10 +549,26 @@ class FacadeAnalyzer:
         if np.any(paint_m):
             final_materials["painted_surface"] = paint_m
 
-        # Layer 7: Molding (decorative, top z-index)
+        # Layer 7: Wood cladding (below metal, above plaster)
+        wood_m = raw_material_masks.get("wood", np.zeros(original_size, dtype=bool)) & bare_wall
+        if np.any(wood_m):
+            final_materials["wood"] = wood_m
+
+        # Layer 8: Metal cladding (hides wood beneath if present)
+        metal_m = raw_material_masks.get("metal", np.zeros(original_size, dtype=bool)) & bare_wall
+        if np.any(metal_m):
+            final_materials["metal"] = metal_m
+
+        # Layer 9: Molding (decorative)
         molding_m = raw_material_masks.get("molding", np.zeros(original_size, dtype=bool)) & bare_wall
         if np.any(molding_m):
             final_materials["molding"] = molding_m
+
+        # Layer 10 (TOP): Glass — lives inside window geometry, not bare_wall.
+        windows = geom_masks.get("window", np.zeros(original_size, dtype=bool))
+        glass_m = raw_material_masks.get("glass", np.zeros(original_size, dtype=bool)) | windows
+        if np.any(glass_m):
+            final_materials["glass"] = glass_m
 
         torch.cuda.empty_cache()
         gc.collect()
@@ -747,6 +837,12 @@ class FacadeAnalyzer:
             "geometry_detections": detections,
             "processed_images": list(viz_paths.keys()),
             "image_paths": viz_paths,
+            # Raw masks per class — the API layer turns them into PNG URLs.
+            "masks": {
+                "geometry": geom_masks,
+                "defects": all_defect_masks,
+                "materials": material_masks,
+            },
         }
 
     # ─────────────────────────────────────────────────

@@ -1,0 +1,18 @@
+[Unit]
+Description=AlegroCode price scraper (daily)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Replace /opt/alegrocode with your checkout path
+WorkingDirectory=/opt/alegrocode
+Environment="PYTHONPATH=/opt/alegrocode"
+Environment="ALEGRO_DB_PATH=/opt/alegrocode/data/alegrocode.db"
+ExecStart=/usr/bin/env python -m backend.scraper.worker run-once --source all
+StandardOutput=journal
+StandardError=journal
+User=alegrocode
+
+[Install]
+WantedBy=multi-user.target

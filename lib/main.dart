@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'theme/app_theme.dart';
-import 'screens/home_screen.dart';
-import 'screens/photo_preview_screen.dart';
-import 'screens/analysis_loading_screen.dart';
-import 'screens/results_screen.dart';
-import 'screens/settings_screen.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
-void main() {
+import 'app/router.dart';
+import 'theme/app_theme.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('ru', null);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -17,26 +18,25 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const FacadeAnalyzerApp());
+  runApp(const ProviderScope(child: AlegroCodeApp()));
 }
 
-class FacadeAnalyzerApp extends StatelessWidget {
-  const FacadeAnalyzerApp({super.key});
+class AlegroCodeApp extends StatelessWidget {
+  const AlegroCodeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Анализ Фасадов',
+    return MaterialApp.router(
+      title: 'Building Analyzer',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      initialRoute: '/',
-      routes: {
-        '/': (context) => const HomeScreen(),
-        '/preview': (context) => const PhotoPreviewScreen(),
-        '/loading': (context) => const AnalysisLoadingScreen(),
-        '/results': (context) => const ResultsScreen(),
-        '/settings': (context) => const SettingsScreen(),
-      },
+      routerConfig: buildRouter(),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('ru'), Locale('en')],
     );
   }
 }
