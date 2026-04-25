@@ -8,10 +8,13 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.api import deps
 from backend.api.routes import (
@@ -89,6 +92,39 @@ def create_app(analyzer=None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    _err_log = logging.getLogger("app.errors")
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exc(request: Request, exc: Exception):
+        tb = traceback.format_exc()
+        _err_log.error(
+            "UNHANDLED 500  %s %s\n"
+            "  client : %s\n"
+            "  headers: %s\n"
+            "%s",
+            request.method,
+            request.url,
+            request.client,
+            dict(request.headers),
+            tb,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": str(exc) or "Internal server error",
+                "error_type": type(exc).__name__,
+            },
+        )
+
+    @app.middleware("http")
+    async def _log_errors(request: Request, call_next):
+        response = await call_next(request)
+        if response.status_code >= 400:
+            _err_log.warning(
+                "%d  %s %s", response.status_code, request.method, request.url.path
+            )
+        return response
 
     prefix = settings.api_prefix
     app.include_router(routes_health.router, prefix=prefix, tags=["health"])

@@ -39,9 +39,14 @@ Dio buildDioClient({
         Duration(seconds: 1),
         Duration(seconds: 3),
       ],
-      retryableExtraStatuses: const {502, 503, 504},
       // Never retry non-idempotent calls unless the caller opts in per-request.
       retryEvaluator: (error, attempt) {
+        const retryableStatuses = {502, 503, 504};
+        final status = error.response?.statusCode;
+        if (status != null && !retryableStatuses.contains(status)) {
+          return false;
+        }
+
         final method = error.requestOptions.method.toUpperCase();
         if (method != 'GET' && method != 'HEAD') {
           return error.requestOptions.extra['retryable'] == true;
